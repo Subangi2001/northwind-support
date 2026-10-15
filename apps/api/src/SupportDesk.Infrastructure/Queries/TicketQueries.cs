@@ -17,16 +17,56 @@ namespace SupportDesk.Infrastructure.Queries;
 public sealed class TicketQueries(SupportDbContext db, IClock clock) : ITicketQueries
 {
     /// <remarks>
-    /// Sorts and pages every ticket. The filter values bound into <paramref name="query"/>
-    /// (search, status, priority, category, customer, agent, unassigned-only) are not applied
-    /// yet: server-side filtering is still to be built.
+    /// Applies filters in the database before counting, sorting, and paging tickets.
     /// </remarks>
     public async Task<PagedResult<TicketListItemDto>> GetPagedAsync(TicketQuery query, CancellationToken ct)
     {
         var tickets = TicketsWithLabels();
 
-        var totalCount = await tickets.CountAsync(ct);
+if (query.Status.HasValue)
+{
+    tickets = tickets.Where(x => x.Ticket.Status == query.Status.Value);
+}
 
+if (query.Priority.HasValue)
+{
+    tickets = tickets.Where(x => x.Ticket.Priority == query.Priority.Value);
+}
+
+if (query.CategoryId.HasValue)
+{
+    tickets = tickets.Where(x => x.Ticket.CategoryId == query.CategoryId.Value);
+}
+
+if (query.CustomerId.HasValue)
+{
+    tickets = tickets.Where(x => x.Ticket.CustomerId == query.CustomerId.Value);
+}
+
+if (query.AssignedAgentId.HasValue)
+{
+    tickets = tickets.Where(x => x.Ticket.AssignedAgentId == query.AssignedAgentId.Value);
+}
+
+if (query.UnassignedOnly)
+{
+    tickets = tickets.Where(x => x.Ticket.AssignedAgentId == null);
+}
+
+if (!string.IsNullOrWhiteSpace(query.Search))
+{
+    var search = query.Search.Trim();
+
+    tickets = tickets.Where(x =>
+        x.Ticket.Title.Contains(search) ||
+        x.Ticket.Reference.Contains(search) ||
+        x.Customer.Name.Contains(search));
+}
+
+var totalCount = await tickets.CountAsync(ct);
+
+
+            
         var now = clock.UtcNow;
 
         var items = await ApplySort(tickets, query)
