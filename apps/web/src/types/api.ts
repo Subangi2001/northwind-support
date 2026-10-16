@@ -79,6 +79,15 @@ export interface TicketDetail {
   dueAtUtc: string | null;
   resolvedAtUtc: string | null;
   slaStatus: SlaStatus;
+  triage?: TicketTriage;
+}
+
+export interface TicketTriage {
+  appliedPriority: TicketPriority;
+  priorityReason: string;
+  slaWindowHours: number;
+  slaReason: string;
+  assignmentReason: string;
 }
 
 /** Everything the ticket list screen can narrow the results by. */
@@ -86,6 +95,7 @@ export interface TicketFilters {
   search: string;
   status?: TicketStatus;
   priority?: TicketPriority;
+  slaStatus?: SlaStatus;
   categoryId?: number;
   customerId?: number;
   assignedAgentId?: number;
