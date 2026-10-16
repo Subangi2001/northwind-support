@@ -82,6 +82,30 @@ export interface TicketDetail {
   triage?: TicketTriage;
 }
 
+export interface EscalateTicketPayload {
+  reason: string;
+  escalatedBy: string;
+}
+
+export interface TicketEscalation {
+  id: number;
+  ticketId: number;
+  fromPriority: TicketPriority;
+  toPriority: TicketPriority;
+  fromAgentId: number | null;
+  toAgentId: number | null;
+  fromDueAtUtc: string | null;
+  toDueAtUtc: string | null;
+  reason: string;
+  escalatedBy: string;
+  escalatedAtUtc: string;
+}
+
+export interface EscalateTicketResponse {
+  ticket: TicketDetail;
+  escalation: TicketEscalation;
+}
+
 export interface TicketTriage {
   appliedPriority: TicketPriority;
   priorityReason: string;
