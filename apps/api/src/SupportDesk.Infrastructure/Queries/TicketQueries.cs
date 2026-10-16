@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SupportDesk.Application.Abstractions;
 using SupportDesk.Application.Contracts.Common;
 using SupportDesk.Application.Contracts.Tickets;
+using SupportDesk.Application.Features.Tickets;
 using SupportDesk.Domain.Aggregates.Agents;
 using SupportDesk.Domain.Aggregates.Categories;
 using SupportDesk.Domain.Aggregates.Customers;
@@ -14,7 +15,10 @@ namespace SupportDesk.Infrastructure.Queries;
 /// Ticket reads. Projected in the database and never tracked. Aggregates hold only each
 /// other's ids, so the customer, category and agent labels are joined in here, on the read side.
 /// </summary>
-public sealed class TicketQueries(SupportDbContext db, IClock clock) : ITicketQueries
+public sealed class TicketQueries(
+    SupportDbContext db,
+    IClock clock,
+    SlaOptions slaOptions) : ITicketQueries
 {
     /// <remarks>
     /// Applies filters in the database before counting, sorting, and paging tickets.
@@ -22,6 +26,7 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock) : ITicketQu
     public async Task<PagedResult<TicketListItemDto>> GetPagedAsync(TicketQuery query, CancellationToken ct)
     {
         var tickets = TicketsWithLabels();
+        var now = clock.UtcNow;
 
 if (query.Status.HasValue)
 {
@@ -63,12 +68,72 @@ if (!string.IsNullOrWhiteSpace(query.Search))
         x.Customer.Name.Contains(search));
 }
 
+if (query.SlaStatus is { } slaStatus)
+{
+    var thresholdPercent = slaOptions.AtRiskThresholdPercent;
+
+    tickets = slaStatus switch
+    {
+        SlaStatus.NotApplicable =>
+            tickets.Where(x => x.Ticket.DueAtUtc == null),
+
+        SlaStatus.Met =>
+            tickets.Where(x =>
+                x.Ticket.DueAtUtc != null &&
+                x.Ticket.ResolvedAtUtc != null &&
+                x.Ticket.ResolvedAtUtc <= x.Ticket.DueAtUtc),
+
+        SlaStatus.Breached =>
+            tickets.Where(x =>
+                x.Ticket.DueAtUtc != null &&
+                (
+                    (x.Ticket.ResolvedAtUtc != null &&
+                     x.Ticket.ResolvedAtUtc > x.Ticket.DueAtUtc)
+                    ||
+                    (x.Ticket.ResolvedAtUtc == null &&
+                     now > x.Ticket.DueAtUtc)
+                )),
+
+        SlaStatus.AtRisk =>
+            tickets.Where(x =>
+                x.Ticket.DueAtUtc != null &&
+                x.Ticket.ResolvedAtUtc == null &&
+                now <= x.Ticket.DueAtUtc &&
+                x.Ticket.SlaWindowStartedAtUtc != null &&
+                x.Ticket.SlaWindowStartedAtUtc < x.Ticket.DueAtUtc &&
+                EF.Functions.DateDiffMillisecond(
+                    now,
+                    x.Ticket.DueAtUtc.Value) * 100.0
+                <=
+                EF.Functions.DateDiffMillisecond(
+                    x.Ticket.SlaWindowStartedAtUtc.Value,
+                    x.Ticket.DueAtUtc.Value) * thresholdPercent),
+
+        SlaStatus.WithinSla =>
+            tickets.Where(x =>
+                x.Ticket.DueAtUtc != null &&
+                x.Ticket.ResolvedAtUtc == null &&
+                now <= x.Ticket.DueAtUtc &&
+                (
+                    x.Ticket.SlaWindowStartedAtUtc == null ||
+                    x.Ticket.SlaWindowStartedAtUtc >= x.Ticket.DueAtUtc ||
+                    EF.Functions.DateDiffMillisecond(
+                        now,
+                        x.Ticket.DueAtUtc.Value) * 100.0
+                    >
+                    EF.Functions.DateDiffMillisecond(
+                        x.Ticket.SlaWindowStartedAtUtc.Value,
+                        x.Ticket.DueAtUtc.Value) * thresholdPercent
+                )),
+
+        _ => tickets
+    };
+}
+
 var totalCount = await tickets.CountAsync(ct);
 
 
             
-        var now = clock.UtcNow;
-
         var items = await ApplySort(tickets, query)
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
@@ -86,7 +151,12 @@ var totalCount = await tickets.CountAsync(ct);
                 UpdatedAtUtc = x.Ticket.UpdatedAtUtc,
                 DueAtUtc = x.Ticket.DueAtUtc,
                 ResolvedAtUtc = x.Ticket.ResolvedAtUtc,
-                SlaStatus = SlaEvaluator.Evaluate(x.Ticket.DueAtUtc, x.Ticket.ResolvedAtUtc, now)
+                SlaStatus = SlaEvaluator.Evaluate(
+                    x.Ticket.DueAtUtc,
+                    x.Ticket.ResolvedAtUtc,
+                    now,
+                    x.Ticket.SlaWindowStartedAtUtc,
+                    slaOptions.AtRiskThresholdPercent)
             })
             .ToListAsync(ct);
 
@@ -115,7 +185,12 @@ var totalCount = await tickets.CountAsync(ct);
                 UpdatedAtUtc = x.Ticket.UpdatedAtUtc,
                 DueAtUtc = x.Ticket.DueAtUtc,
                 ResolvedAtUtc = x.Ticket.ResolvedAtUtc,
-                SlaStatus = SlaEvaluator.Evaluate(x.Ticket.DueAtUtc, x.Ticket.ResolvedAtUtc, now)
+                SlaStatus = SlaEvaluator.Evaluate(
+                    x.Ticket.DueAtUtc,
+                    x.Ticket.ResolvedAtUtc,
+                    now,
+                    x.Ticket.SlaWindowStartedAtUtc,
+                    slaOptions.AtRiskThresholdPercent)
             })
             .FirstOrDefaultAsync(ct);
     }
@@ -142,7 +217,12 @@ var totalCount = await tickets.CountAsync(ct);
                 UpdatedAtUtc = x.Ticket.UpdatedAtUtc,
                 DueAtUtc = x.Ticket.DueAtUtc,
                 ResolvedAtUtc = x.Ticket.ResolvedAtUtc,
-                SlaStatus = SlaEvaluator.Evaluate(x.Ticket.DueAtUtc, x.Ticket.ResolvedAtUtc, now)
+                SlaStatus = SlaEvaluator.Evaluate(
+                    x.Ticket.DueAtUtc,
+                    x.Ticket.ResolvedAtUtc,
+                    now,
+                    x.Ticket.SlaWindowStartedAtUtc,
+                    slaOptions.AtRiskThresholdPercent)
             })
             .ToListAsync(ct);
     }

@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using SupportDesk.Application.Abstractions;
 using SupportDesk.Application.Contracts.Tickets;
+using SupportDesk.Application.Features.Tickets;
 using SupportDesk.Domain.Aggregates.Categories;
 using SupportDesk.Domain.Aggregates.Customers;
 using SupportDesk.Domain.Aggregates.Tickets;
@@ -32,7 +33,7 @@ public sealed class TicketQueriesTests
         clock.SetupGet(x => x.UtcNow)
             .Returns(new DateTime(2026, 10, 15, 8, 0, 0, DateTimeKind.Utc));
 
-        return (connection, db, new TicketQueries(db, clock.Object));
+        return (connection, db, new TicketQueries(db, clock.Object, new SlaOptions()));
     }
 
     private static async Task<(Customer Customer, Category Category)> AddCustomerAndCategoryAsync(
