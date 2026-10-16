@@ -4,6 +4,7 @@ using SupportDesk.Application.Contracts.Tickets;
 using SupportDesk.Application.Features.Tickets;
 using SupportDesk.Application.Features.Tickets.Commands.AssignTicket;
 using SupportDesk.Application.Features.Tickets.Commands.ChangeTicketStatus;
+using SupportDesk.Application.Features.Tickets.Commands.EscalateTicket;
 using SupportDesk.Application.Features.Tickets.Commands.RaiseTicket;
 using SupportDesk.Application.Features.Tickets.Queries.GetTicket;
 using SupportDesk.Domain.Aggregates.Agents;
@@ -67,6 +68,12 @@ internal sealed class TicketCommandTestContext
             .Callback<Ticket, CancellationToken>((ticket, _) => AddedTicket = ticket)
             .Returns(Task.CompletedTask);
 
+        Escalations.Setup(e => e.AddAsync(
+                It.IsAny<TicketEscalation>(), It.IsAny<CancellationToken>()))
+            .Callback<TicketEscalation, CancellationToken>(
+                (escalation, _) => AddedEscalation = escalation)
+            .Returns(Task.CompletedTask);
+
         // Every command returns the ticket as re-read once its change has been saved.
         TicketQueries.Setup(q => q.GetDetailAsync(
                 It.IsAny<int>(), It.IsAny<CancellationToken>()))
@@ -89,6 +96,16 @@ internal sealed class TicketCommandTestContext
             Agents.Object,
             Tickets.Object,
             new SlaOptions());
+
+        EscalateTicket = new EscalateTicketCommandHandler(
+            Tickets.Object,
+            Customers.Object,
+            Categories.Object,
+            Escalations.Object,
+            UnitOfWork.Object,
+            Clock,
+            triage,
+            getTicket);
 
         RaiseTicket = new RaiseTicketCommandHandler(
             Tickets.Object,
@@ -117,6 +134,8 @@ internal sealed class TicketCommandTestContext
 
     public Mock<ITicketRepository> Tickets { get; } = new();
 
+    public Mock<ITicketEscalationRepository> Escalations { get; } = new();
+
     public Mock<ICustomerRepository> Customers { get; } = new();
 
     public Mock<ICategoryRepository> Categories { get; } = new();
@@ -135,8 +154,13 @@ internal sealed class TicketCommandTestContext
 
     public AssignTicketCommandHandler AssignTicket { get; }
 
+    public EscalateTicketCommandHandler EscalateTicket { get; }
+
     /// <summary>The ticket handed to the repository by the last create call.</summary>
     public Ticket? AddedTicket { get; private set; }
+
+    /// <summary>The escalation handed to the repository by the last escalation call.</summary>
+    public TicketEscalation? AddedEscalation { get; private set; }
 
     /// <summary>Makes the ticket repository return this ticket.</summary>
     public Ticket ExistingTicket(Ticket ticket)
