@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SupportDesk.Application.Abstractions;
 using SupportDesk.Application.Contracts.Common;
+using SupportDesk.Application.Contracts.Reports;
 using SupportDesk.Application.Contracts.Tickets;
 using SupportDesk.Application.Features.Tickets;
 using SupportDesk.Domain.Aggregates.Agents;
@@ -20,6 +21,124 @@ public sealed class TicketQueries(
     IClock clock,
     SlaOptions slaOptions) : ITicketQueries
 {
+    public async Task<IReadOnlyList<SlaSummaryDto>> GetSlaSummaryAsync(
+        SlaSummaryQuery query,
+        CancellationToken cancellationToken)
+    {
+        return await BuildSlaSummaryQuery(query)
+            .ToListAsync(cancellationToken);
+    }
+
+    internal IQueryable<SlaSummaryDto> BuildSlaSummaryQuery(
+        SlaSummaryQuery query)
+    {
+        var now = clock.UtcNow;
+        var thresholdPercent = slaOptions.AtRiskThresholdPercent;
+        IQueryable<Ticket> tickets = db.Set<Ticket>().AsNoTracking();
+
+        if (query.FromUtc.HasValue)
+        {
+            tickets = tickets.Where(ticket => ticket.CreatedAtUtc >= query.FromUtc.Value);
+        }
+
+        if (query.ToUtc.HasValue)
+        {
+            tickets = tickets.Where(ticket => ticket.CreatedAtUtc < query.ToUtc.Value);
+        }
+
+        var rows = tickets.Select(ticket => new SlaSummaryRow
+        {
+            Priority = ticket.Priority,
+            AssignedAgentId = ticket.AssignedAgentId,
+            IsNotApplicable = ticket.DueAtUtc == null,
+            IsMet = ticket.DueAtUtc != null &&
+                    ticket.ResolvedAtUtc != null &&
+                    ticket.ResolvedAtUtc <= ticket.DueAtUtc,
+            IsBreached = ticket.DueAtUtc != null &&
+                         ((ticket.ResolvedAtUtc != null &&
+                           ticket.ResolvedAtUtc > ticket.DueAtUtc) ||
+                          (ticket.ResolvedAtUtc == null &&
+                           now > ticket.DueAtUtc)),
+            IsAtRisk = ticket.DueAtUtc != null &&
+                       ticket.ResolvedAtUtc == null &&
+                       now <= ticket.DueAtUtc &&
+                       ticket.SlaWindowStartedAtUtc != null &&
+                       ticket.SlaWindowStartedAtUtc < ticket.DueAtUtc &&
+                       EF.Functions.DateDiffMillisecond(
+                           now,
+                           ticket.DueAtUtc.Value) * 100.0 <=
+                       EF.Functions.DateDiffMillisecond(
+                           ticket.SlaWindowStartedAtUtc.Value,
+                           ticket.DueAtUtc.Value) * thresholdPercent,
+            IsWithinSla = ticket.DueAtUtc != null &&
+                          ticket.ResolvedAtUtc == null &&
+                          now <= ticket.DueAtUtc &&
+                          (ticket.SlaWindowStartedAtUtc == null ||
+                           ticket.SlaWindowStartedAtUtc >= ticket.DueAtUtc ||
+                           EF.Functions.DateDiffMillisecond(
+                               now,
+                               ticket.DueAtUtc.Value) * 100.0 >
+                           EF.Functions.DateDiffMillisecond(
+                               ticket.SlaWindowStartedAtUtc.Value,
+                               ticket.DueAtUtc.Value) * thresholdPercent),
+            ResolutionHours = ticket.ResolvedAtUtc == null
+                ? (double?)null
+                : EF.Functions.DateDiffSecond(
+                    ticket.CreatedAtUtc,
+                    ticket.ResolvedAtUtc.Value) / 3_600d
+        });
+
+        IQueryable<SlaSummaryAggregation> aggregates;
+
+        if (string.Equals(query.GroupBy, "priority", StringComparison.OrdinalIgnoreCase))
+        {
+            aggregates = rows
+                .GroupBy(row => row.Priority)
+                .Select(bucket => new SlaSummaryAggregation
+                {
+                    Group = bucket.Key == TicketPriority.Low ? nameof(TicketPriority.Low)
+                        : bucket.Key == TicketPriority.Medium ? nameof(TicketPriority.Medium)
+                        : bucket.Key == TicketPriority.High ? nameof(TicketPriority.High)
+                        : nameof(TicketPriority.Critical),
+                    TotalTickets = bucket.Count(),
+                    Breached = bucket.Sum(row => row.IsBreached ? 1 : 0),
+                    AtRisk = bucket.Sum(row => row.IsAtRisk ? 1 : 0),
+                    WithinSla = bucket.Sum(row => row.IsWithinSla ? 1 : 0),
+                    Met = bucket.Sum(row => row.IsMet ? 1 : 0),
+                    SlaApplicableTickets = bucket.Sum(row => row.IsNotApplicable ? 0 : 1),
+                    AverageResolutionHours = bucket.Average(row => row.ResolutionHours)
+                });
+        }
+        else
+        {
+            aggregates =
+                from row in rows
+                from agent in db.Set<Agent>()
+                    .AsNoTracking()
+                    .Where(agent => agent.Id == row.AssignedAgentId)
+                    .DefaultIfEmpty()
+                group row by new
+                {
+                    AgentId = agent == null ? (int?)null : agent.Id,
+                    AgentName = agent == null ? "Unassigned" : agent.FullName
+                }
+                into bucket
+                select new SlaSummaryAggregation
+                {
+                    Group = bucket.Key.AgentName,
+                    TotalTickets = bucket.Count(),
+                    Breached = bucket.Sum(row => row.IsBreached ? 1 : 0),
+                    AtRisk = bucket.Sum(row => row.IsAtRisk ? 1 : 0),
+                    WithinSla = bucket.Sum(row => row.IsWithinSla ? 1 : 0),
+                    Met = bucket.Sum(row => row.IsMet ? 1 : 0),
+                    SlaApplicableTickets = bucket.Sum(row => row.IsNotApplicable ? 0 : 1),
+                    AverageResolutionHours = bucket.Average(row => row.ResolutionHours)
+                };
+        }
+
+        return ToSummaryDtos(aggregates);
+    }
+
     /// <remarks>
     /// Applies filters in the database before counting, sorting, and paging tickets.
     /// </remarks>
@@ -274,4 +393,58 @@ var totalCount = await tickets.CountAsync(ct);
 
         public Agent? Agent { get; init; }
     }
+
+    private sealed class SlaSummaryRow
+    {
+        public required TicketPriority Priority { get; init; }
+
+        public int? AssignedAgentId { get; init; }
+
+        public required bool IsNotApplicable { get; init; }
+
+        public required bool IsMet { get; init; }
+
+        public required bool IsBreached { get; init; }
+
+        public required bool IsAtRisk { get; init; }
+
+        public required bool IsWithinSla { get; init; }
+
+        public double? ResolutionHours { get; init; }
+    }
+
+    private sealed class SlaSummaryAggregation
+    {
+        public required string Group { get; init; }
+
+        public required int TotalTickets { get; init; }
+
+        public required int Breached { get; init; }
+
+        public required int AtRisk { get; init; }
+
+        public required int WithinSla { get; init; }
+
+        public required int Met { get; init; }
+
+        public required int SlaApplicableTickets { get; init; }
+
+        public double? AverageResolutionHours { get; init; }
+    }
+
+    private static IQueryable<SlaSummaryDto> ToSummaryDtos(
+        IQueryable<SlaSummaryAggregation> aggregates) =>
+        aggregates.Select(aggregate => new SlaSummaryDto
+        {
+            Group = aggregate.Group,
+            TotalTickets = aggregate.TotalTickets,
+            Breached = aggregate.Breached,
+            AtRisk = aggregate.AtRisk,
+            WithinSla = aggregate.WithinSla,
+            Met = aggregate.Met,
+            BreachRate = aggregate.SlaApplicableTickets == 0
+                ? 0m
+                : (decimal)aggregate.Breached / aggregate.SlaApplicableTickets,
+            AverageResolutionHours = aggregate.AverageResolutionHours
+        });
 }
