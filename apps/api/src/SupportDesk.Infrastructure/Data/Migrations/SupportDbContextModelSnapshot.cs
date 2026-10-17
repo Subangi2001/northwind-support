@@ -46,6 +46,10 @@ namespace SupportDesk.Infrastructure.Data.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<string>("PasswordHash")
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
                     b.Property<int>("MaxOpenTickets")
                         .HasColumnType("int");
 

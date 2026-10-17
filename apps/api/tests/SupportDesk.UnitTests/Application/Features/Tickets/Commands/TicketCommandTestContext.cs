@@ -56,6 +56,16 @@ internal sealed class TicketCommandTestContext
         Agents.Setup(a => a.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync((IReadOnlyList<Agent>)Array.Empty<Agent>());
 
+        CurrentUser.SetupGet(user => user.Subject).Returns("1");
+        CurrentUser.SetupGet(user => user.Email).Returns("authenticated.agent@example.com");
+        CurrentUser.SetupGet(user => user.AgentId).Returns(1);
+        Agents.Setup(a => a.GetByIdAsync(1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Agent(
+                "Authenticated Agent",
+                "authenticated.agent@example.com",
+                maxOpenTickets: 10,
+                Clock.UtcNow));
+
         Tickets.Setup(t => t.NextReferenceAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync("TCK-0041");
 
@@ -101,9 +111,11 @@ internal sealed class TicketCommandTestContext
             Tickets.Object,
             Customers.Object,
             Categories.Object,
+            Agents.Object,
             Escalations.Object,
             UnitOfWork.Object,
             Clock,
+            CurrentUser.Object,
             triage,
             getTicket);
 
@@ -141,6 +153,8 @@ internal sealed class TicketCommandTestContext
     public Mock<ICategoryRepository> Categories { get; } = new();
 
     public Mock<IAgentRepository> Agents { get; } = new();
+
+    public Mock<ICurrentUser> CurrentUser { get; } = new();
 
     public Mock<IUnitOfWork> UnitOfWork { get; } = new();
 

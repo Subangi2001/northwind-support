@@ -148,6 +148,23 @@ export interface Agent {
   specializations: CategorySummary[];
 }
 
+export interface AgentIdentity {
+  id: number;
+  fullName: string;
+  email: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  accessToken: string;
+  expiresAtUtc: string;
+  user: AgentIdentity;
+}
+
 export interface Category {
   id: number;
   name: string;

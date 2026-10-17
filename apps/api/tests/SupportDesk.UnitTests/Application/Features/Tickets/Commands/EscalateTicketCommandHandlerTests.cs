@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SupportDesk.Application.Contracts.Tickets;
 using SupportDesk.Application.Exceptions;
 using SupportDesk.Application.Features.Tickets.Commands.EscalateTicket;
@@ -12,8 +13,7 @@ public sealed class EscalateTicketCommandHandlerTests
 {
     private static readonly EscalateTicketRequest ValidRequest = new()
     {
-        Reason = "Customer impact has increased",
-        EscalatedBy = "team-lead"
+        Reason = "Customer impact has increased"
     };
 
     [Theory]
@@ -163,11 +163,9 @@ public sealed class EscalateTicketCommandHandlerTests
         context.Clock.Advance(TimeSpan.FromMinutes(30));
         var escalationTimeUtc = context.Clock.UtcNow;
 
-        var request = new EscalateTicketRequest
-        {
-            Reason = "Customer impact has increased",
-            EscalatedBy = "team-lead"
-        };
+        var request = JsonSerializer.Deserialize<EscalateTicketRequest>(
+            "{\"reason\":\"Customer impact has increased\",\"escalatedBy\":\"attacker@example.com\"}",
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
 
         await context.EscalateTicket.HandleAsync(
             ticket.Id,
@@ -182,7 +180,7 @@ public sealed class EscalateTicketCommandHandlerTests
         Assert.Equal(previousDueAtUtc, escalation.FromDueAtUtc);
         Assert.Equal(escalationTimeUtc.AddHours(4), escalation.ToDueAtUtc);
         Assert.Equal(request.Reason, escalation.Reason);
-        Assert.Equal(request.EscalatedBy, escalation.EscalatedBy);
+        Assert.Equal("authenticated.agent@example.com", escalation.EscalatedBy);
         Assert.Equal(escalationTimeUtc, escalation.EscalatedAtUtc);
         Assert.Equal(escalation.ToDueAtUtc, ticket.DueAtUtc);
         Assert.Equal(escalationTimeUtc, ticket.SlaWindowStartedAtUtc);
@@ -196,8 +194,7 @@ public sealed class EscalateTicketCommandHandlerTests
         var validator = new EscalateTicketRequestValidator();
         var request = new EscalateTicketRequest
         {
-            Reason = "bad",
-            EscalatedBy = "team-lead"
+            Reason = "bad"
         };
 
         var result = await validator.ValidateAsync(request);

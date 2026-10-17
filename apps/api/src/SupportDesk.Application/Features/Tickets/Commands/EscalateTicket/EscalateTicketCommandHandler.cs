@@ -11,9 +11,11 @@ public sealed class EscalateTicketCommandHandler(
     ITicketRepository tickets,
     ICustomerRepository customers,
     ICategoryRepository categories,
+    IAgentRepository agents,
     ITicketEscalationRepository escalations,
     IUnitOfWork unitOfWork,
     IClock clock,
+    ICurrentUser currentUser,
     TicketTriageService triage,
     GetTicketQueryHandler getTicket)
 {
@@ -24,6 +26,20 @@ public sealed class EscalateTicketCommandHandler(
     {
         var ticket = await tickets.GetByIdAsync(id, ct)
             ?? throw new NotFoundException("Ticket", id);
+
+        if (currentUser.AgentId is not { } actorAgentId ||
+            string.IsNullOrWhiteSpace(currentUser.Email))
+        {
+            throw new UnauthorizedException("The authenticated user is not a valid agent.");
+        }
+
+        var actorAgent = await agents.GetByIdAsync(actorAgentId, ct);
+
+        if (actorAgent is null ||
+            !string.Equals(actorAgent.Email, currentUser.Email, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new UnauthorizedException("The authenticated user is not a valid agent.");
+        }
 
         if (ticket.Priority == TicketPriority.Critical)
         {
@@ -80,7 +96,7 @@ public sealed class EscalateTicketCommandHandler(
             previousDueAtUtc,
             decision.DueAtUtc,
             request.Reason,
-            request.EscalatedBy,
+            currentUser.Email,
             escalationTimeUtc);
 
         await escalations.AddAsync(escalation, ct);
