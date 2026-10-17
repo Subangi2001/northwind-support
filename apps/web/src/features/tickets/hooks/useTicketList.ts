@@ -3,7 +3,7 @@ import { ApiError } from '../../../api/client';
 import { ticketsApi } from '../../../api/tickets';
 import type { PagedResult, TicketFilters, TicketListItem } from '../../../types/api';
 
-const DEBOUNCE_MS = 300;
+const SEARCH_DEBOUNCE_MS = 500;
 
 export const emptyFilters: TicketFilters = {
   search: '',
@@ -65,13 +65,13 @@ const previousFilters = useRef<TicketFilters | null>(null);
 
     let handle: number | undefined;
 
-    
     if (previous === null || changedKeys.length === 0 || onlySearchChanged) {
-      handle = window.setTimeout(load, DEBOUNCE_MS);
+      handle = window.setTimeout(() => {
+        void load();
+      }, SEARCH_DEBOUNCE_MS);
     } else if (changedKeys.length > 0) {
       void load();
     }
-
 
     return () => {
       if (handle !== undefined) {

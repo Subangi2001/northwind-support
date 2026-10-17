@@ -27,7 +27,7 @@ describe('useTicketList', () => {
     const { result } = renderHook(() => useTicketList());
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
+      await vi.advanceTimersByTimeAsync(500);
     });
 
     expect(getTickets).toHaveBeenCalledTimes(1);
@@ -40,7 +40,7 @@ describe('useTicketList', () => {
     expect(getTickets).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
+      await vi.advanceTimersByTimeAsync(500);
     });
 
     expect(getTickets).toHaveBeenCalledTimes(2);
@@ -56,7 +56,7 @@ describe('useTicketList', () => {
     const { result } = renderHook(() => useTicketList());
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
+      await vi.advanceTimersByTimeAsync(500);
     });
 
     expect(getTickets).toHaveBeenCalledTimes(1);
@@ -73,7 +73,7 @@ describe('useTicketList', () => {
     const { result } = renderHook(() => useTicketList());
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
+      await vi.advanceTimersByTimeAsync(500);
     });
 
     expect(getTickets).toHaveBeenCalledTimes(1);
