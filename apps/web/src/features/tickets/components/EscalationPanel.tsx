@@ -15,7 +15,6 @@ export function EscalationPanel({
   onEscalated,
 }: EscalationPanelProps) {
   const [reason, setReason] = useState('');
-  const [escalatedBy, setEscalatedBy] = useState('');
   const [validationError, setValidationError] = useState<string>();
   const [requestError, setRequestError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,14 +33,6 @@ export function EscalationPanel({
 
     if (trimmedReason.length > 500) {
       return 'Escalation reason cannot exceed 500 characters.';
-    }
-
-    if (escalatedBy.trim().length === 0) {
-      return 'Escalated by is required.';
-    }
-
-    if (escalatedBy.trim().length > 100) {
-      return 'Escalated by cannot exceed 100 characters.';
     }
 
     return undefined;
@@ -63,7 +54,6 @@ export function EscalationPanel({
     try {
       const response = await ticketsApi.escalateTicket(ticket.id, {
         reason: reason.trim(),
-        escalatedBy: escalatedBy.trim(),
       });
 
       onUpdated(response.ticket);
@@ -120,21 +110,6 @@ export function EscalationPanel({
           <span id="escalation-reason-hint" className="field__hint">
             Enter 5–500 characters.
           </span>
-        </div>
-
-        <div className="field">
-          <label className="field__label" htmlFor="escalated-by">
-            Escalated by
-          </label>
-          <input
-            id="escalated-by"
-            type="text"
-            value={escalatedBy}
-            onChange={(event) => setEscalatedBy(event.target.value)}
-            maxLength={100}
-            aria-invalid={validationError !== undefined}
-            disabled={isSubmitting}
-          />
         </div>
 
         {validationError && (

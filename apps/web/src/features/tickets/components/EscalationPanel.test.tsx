@@ -69,10 +69,6 @@ describe('EscalationPanel', () => {
       target: { value: 'abc' },
     });
 
-    fireEvent.change(screen.getByLabelText('Escalated by'), {
-      target: { value: 'alex.lead' },
-    });
-
     fireEvent.click(screen.getByRole('button', { name: 'Escalate ticket' }));
 
     expect(
@@ -104,10 +100,6 @@ describe('EscalationPanel', () => {
       target: { value: 'The issue is becoming urgent.' },
     });
 
-    fireEvent.change(screen.getByLabelText('Escalated by'), {
-      target: { value: 'alex.lead' },
-    });
-
     fireEvent.click(screen.getByRole('button', { name: 'Escalate ticket' }));
 
     expect(
@@ -122,6 +114,9 @@ describe('EscalationPanel', () => {
     });
 
     expect(escalateTicket).toHaveBeenCalledTimes(1);
+    expect(escalateTicket).toHaveBeenCalledWith(ticket.id, {
+      reason: 'The issue is becoming urgent.',
+    });
 
     escalateTicket.mockRestore();
   });

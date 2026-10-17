@@ -26,6 +26,9 @@ RUN dotnet publish apps/api/src/SupportDesk.Presentation/SupportDesk.Presentatio
     --output /app/publish \
     --no-restore
 
+# Do not include development connection strings or JWT settings in the image.
+RUN rm -f /app/publish/appsettings.Development.json
+
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 
